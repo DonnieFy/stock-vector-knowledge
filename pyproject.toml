@@ -1,0 +1,23 @@
+[project]
+name = "stock-vector-knowledge"
+version = "0.1.0"
+description = "A股上市公司题材向量知识库 - 采集、筛选、向量化查询"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "akshare>=1.14.0",
+    "chromadb>=0.5.0",
+    "sentence-transformers>=3.0.0",
+    "click>=8.1.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+    "scikit-learn>=1.4.0",
+    "pandas>=2.1.0",
+]
+
+[project.scripts]
+svk = "src.cli:cli"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

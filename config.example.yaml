@@ -1,0 +1,24 @@
+# A股题材向量库 配置文件
+# 复制为 config.yaml 并修改
+
+embedding:
+  # 嵌入模型名称 (可选: BAAI/bge-small-zh-v1.5, BAAI/bge-m3, shibing624/text2vec-base-chinese)
+  model_name: "BAAI/bge-small-zh-v1.5"
+  # 运行设备: cpu / cuda / mps
+  device: "cpu"
+
+data:
+  # 草稿箱目录 (原始采集数据)
+  drafts_dir: "./data/drafts"
+  # 最终摘要目录 (每股一个MD)
+  summaries_dir: "./data/summaries"
+  # 向量数据库存储目录
+  vectordb_dir: "./data/vectordb"
+
+collectors:
+  # 启用的采集器列表
+  enabled:
+    - eastmoney
+    - ths
+  # 采集时的请求间隔(秒), 避免被限流
+  request_interval: 1.0
