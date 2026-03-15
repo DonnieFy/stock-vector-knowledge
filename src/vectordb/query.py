@@ -205,78 +205,133 @@ def print_cluster_results(result: dict):
             console.print(f"  • {stock['code']} {stock['name']}")
 
 
-def analyze_themes(stock_codes: list[str], top_n: int = 20) -> list[dict]:
+def analyze_themes(stock_codes: list[str], top_n: int = 10, n_clusters: int = 5) -> list[dict]:
     """
-    分析股票池的共性语义方向。
+    先聚类、再按簇分析语义方向。
 
-    计算输入股票的质心向量，用质心去查询 theme_keywords 集合，
-    返回语义最相关的关键词。
+    1. 对输入股票做 KMeans 聚类
+    2. 对每个簇计算质心向量
+    3. 用每个簇的质心去查询 theme_keywords 集合
+    4. 返回每个簇的关键词
 
     Args:
         stock_codes: 股票代码列表
-        top_n: 返回数量
+        top_n: 每个簇返回的关键词数量
+        n_clusters: 聚类数量（自动取 min(n_clusters, len/3)）
 
     Returns:
-        [{keyword, score, doc_freq}, ...]
+        [{cluster_id, size, stocks: [{code,name}], keywords: [{keyword,score,doc_freq}]}, ...]
     """
+    from sklearn.cluster import KMeans
     from src.vectordb.store import get_keywords_collection
 
     collection = get_collection()
 
     # 获取输入股票的向量
-    target = collection.get(ids=stock_codes, include=["embeddings"])
+    target = collection.get(ids=stock_codes, include=["embeddings", "metadatas"])
     if target["embeddings"] is None or len(target["embeddings"]) == 0:
         console.print("[red]未找到指定股票的向量数据[/red]")
         return []
 
-    # 计算质心
     embeddings = np.array(target["embeddings"])
-    centroid = np.mean(embeddings, axis=0).tolist()
+    ids = target["ids"]
+    metadatas = target["metadatas"]
 
-    # 用质心查询关键词集合
+    # 自动确定聚类数
+    actual_k = min(n_clusters, max(1, len(ids) // 3))
+    if actual_k < 2:
+        actual_k = 1
+
     kw_collection = get_keywords_collection()
-    results = kw_collection.query(
-        query_embeddings=[centroid],
-        n_results=top_n,
-        include=["metadatas", "distances"],
-    )
+    results = []
 
+    if actual_k == 1:
+        # 只有一个簇，直接计算质心
+        centroid = np.mean(embeddings, axis=0).tolist()
+        kw_results = kw_collection.query(
+            query_embeddings=[centroid],
+            n_results=top_n,
+            include=["metadatas", "distances"],
+        )
+        keywords = _parse_kw_results(kw_results)
+        stocks = [
+            {"code": ids[i], "name": metadatas[i].get("stock_name", "")}
+            for i in range(len(ids))
+        ]
+        results.append({
+            "cluster_id": 0, "size": len(ids),
+            "stocks": stocks, "keywords": keywords,
+        })
+    else:
+        # KMeans 聚类
+        kmeans = KMeans(n_clusters=actual_k, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(embeddings)
+
+        for cid in range(actual_k):
+            cluster_indices = [i for i, l in enumerate(labels) if l == cid]
+            if not cluster_indices:
+                continue
+
+            centroid = kmeans.cluster_centers_[cid].tolist()
+            kw_results = kw_collection.query(
+                query_embeddings=[centroid],
+                n_results=top_n,
+                include=["metadatas", "distances"],
+            )
+            keywords = _parse_kw_results(kw_results)
+            stocks = [
+                {"code": ids[i], "name": metadatas[i].get("stock_name", "")}
+                for i in cluster_indices
+            ]
+            # 按离质心的距离排序，最近的在前
+            results.append({
+                "cluster_id": cid, "size": len(cluster_indices),
+                "stocks": stocks, "keywords": keywords,
+            })
+
+    # 按簇大小降序
+    results.sort(key=lambda x: x["size"], reverse=True)
+    return results
+
+
+def _parse_kw_results(kw_results) -> list[dict]:
+    """解析 ChromaDB 关键词查询结果"""
     items = []
-    if results and results["ids"] and results["ids"][0]:
-        for i, kw_id in enumerate(results["ids"][0]):
-            meta = results["metadatas"][0][i] if results["metadatas"] else {}
-            distance = results["distances"][0][i] if results["distances"] else 0
+    if kw_results and kw_results["ids"] and kw_results["ids"][0]:
+        for i, kw_id in enumerate(kw_results["ids"][0]):
+            meta = kw_results["metadatas"][0][i] if kw_results["metadatas"] else {}
+            distance = kw_results["distances"][0][i] if kw_results["distances"] else 0
             similarity = 1.0 / (1.0 + distance)
             items.append({
                 "keyword": meta.get("keyword", kw_id),
                 "score": round(similarity, 4),
                 "doc_freq": meta.get("doc_freq", 0),
             })
-
     return items
 
 
-def print_theme_analysis(results: list[dict], stock_count: int = 0):
-    """格式化打印主题分析结果"""
+def print_theme_analysis(results: list[dict]):
+    """格式化打印主题分析结果（按簇展示）"""
     if not results:
         return
 
-    title = f"语义最相关的 {len(results)} 个关键词"
-    if stock_count:
-        title += f" (基于 {stock_count} 只股票的质心)"
+    total = sum(r["size"] for r in results)
+    console.print(f"\n[bold cyan]═══ {total} 只股票 → {len(results)} 个语义簇 ═══[/bold cyan]")
 
-    table = Table(title=title)
-    table.add_column("排名", style="dim", width=4)
-    table.add_column("关键词", style="bold white", width=16)
-    table.add_column("相似度", style="green", width=8)
-    table.add_column("覆盖股票数", style="cyan", width=10)
+    for r in results:
+        # 关键词摘要
+        kw_str = "、".join(k["keyword"] for k in r["keywords"][:5])
+        console.print(f"\n[bold green]▎簇 {r['cluster_id']} ({r['size']}只) → {kw_str}[/bold green]")
 
-    for i, item in enumerate(results, 1):
-        table.add_row(
-            str(i),
-            item["keyword"],
-            f"{item['score']:.4f}",
-            str(item["doc_freq"]),
-        )
+        # 成员股票
+        stock_names = [f"{s['code']}{s['name']}" for s in r["stocks"]]
+        console.print(f"  [dim]成员: {', '.join(stock_names[:8])}{'...' if len(stock_names) > 8 else ''}[/dim]")
 
-    console.print(table)
+        # 关键词表
+        table = Table(show_header=True, header_style="dim", box=None, padding=(0, 1))
+        table.add_column("关键词", style="white", width=14)
+        table.add_column("相似度", style="green", width=8)
+        table.add_column("覆盖数", style="cyan", width=6)
+        for k in r["keywords"]:
+            table.add_row(k["keyword"], f"{k['score']:.4f}", str(k["doc_freq"]))
+        console.print(table)

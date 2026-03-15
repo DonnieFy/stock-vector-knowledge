@@ -146,12 +146,13 @@ def cluster(stock_codes, k):
 
 @cli.command()
 @click.argument("stock_codes", nargs=-1, required=True)
-@click.option("--top", default=20, help="返回关键词数量")
-def analyze(stock_codes, top):
-    """分析股票池的共性语义方向（如: svk analyze 688165 003028 002611）"""
+@click.option("--top", default=10, help="每簇返回关键词数量")
+@click.option("-k", default=5, help="聚类数量")
+def analyze(stock_codes, top, k):
+    """聚类+语义分析（如: svk analyze 688165 003028 002611）"""
     from src.vectordb.query import analyze_themes, print_theme_analysis
-    results = analyze_themes(list(stock_codes), top_n=top)
-    print_theme_analysis(results, stock_count=len(stock_codes))
+    results = analyze_themes(list(stock_codes), top_n=top, n_clusters=k)
+    print_theme_analysis(results)
 
 
 # ──────────────── 工具 ────────────────
