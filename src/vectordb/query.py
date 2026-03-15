@@ -62,7 +62,7 @@ def query_similar_stock(stock_code: str, top_n: int = 10) -> list[dict]:
 
     # 获取目标股票的向量
     target = collection.get(ids=[stock_code], include=["embeddings"])
-    if not target["embeddings"]:
+    if target["embeddings"] is None or len(target["embeddings"]) == 0:
         console.print(f"[red]未找到股票 {stock_code} 的向量数据[/red]")
         return []
 
@@ -115,7 +115,7 @@ def cluster_stocks(stock_codes: list[str], n_clusters: int = 3) -> dict:
         include=["embeddings", "metadatas"],
     )
 
-    if not target["embeddings"]:
+    if target["embeddings"] is None or len(target["embeddings"]) == 0:
         console.print("[red]未找到指定股票的向量数据[/red]")
         return {"clusters": [], "labels": {}}
 

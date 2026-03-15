@@ -141,12 +141,14 @@ def vectorize_rebuild() -> int:
     metadatas = [{"stock_code": d["code"], "stock_name": d["name"]} for d in docs]
     documents = texts
 
-    collection.add(
-        ids=ids,
-        embeddings=all_embeddings,
-        metadatas=metadatas,
-        documents=documents,
-    )
+    MAX_BATCH = 5000
+    for i in range(0, len(ids), MAX_BATCH):
+        collection.add(
+            ids=ids[i : i + MAX_BATCH],
+            embeddings=all_embeddings[i : i + MAX_BATCH],
+            metadatas=metadatas[i : i + MAX_BATCH],
+            documents=documents[i : i + MAX_BATCH],
+        )
 
     console.print(f"[green]向量库重建完成: {len(docs)} 个文档[/green]")
     return len(docs)
@@ -188,12 +190,18 @@ def vectorize_update() -> int:
     texts = [d["content"] for d in new_docs]
     embeddings = embed_batch(texts)
 
-    collection.add(
-        ids=[d["code"] for d in new_docs],
-        embeddings=embeddings,
-        metadatas=[{"stock_code": d["code"], "stock_name": d["name"]} for d in new_docs],
-        documents=texts,
-    )
+    ids = [d["code"] for d in new_docs]
+    metadatas = [{"stock_code": d["code"], "stock_name": d["name"]} for d in new_docs]
+    documents = texts
+
+    MAX_BATCH = 5000
+    for i in range(0, len(ids), MAX_BATCH):
+        collection.add(
+            ids=ids[i : i + MAX_BATCH],
+            embeddings=embeddings[i : i + MAX_BATCH],
+            metadatas=metadatas[i : i + MAX_BATCH],
+            documents=documents[i : i + MAX_BATCH],
+        )
 
     console.print(f"[green]增量更新完成: {len(new_docs)} 个新文档[/green]")
     return len(new_docs)

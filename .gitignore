@@ -7,3 +7,6 @@ __pycache__/
 .DS_Store
 *.tmp
 /logs/
+*.log
+*.egg-info/
+config.yaml
