@@ -1,6 +1,8 @@
 """ChromaDB 向量存储管理"""
 
+import math
 import re
+from collections import defaultdict
 from pathlib import Path
 
 import chromadb
@@ -13,6 +15,7 @@ from src.vectordb.embedder import embed, embed_batch
 console = Console()
 
 COLLECTION_NAME = "stock_themes"
+KEYWORDS_COLLECTION_NAME = "theme_keywords"
 
 _client: chromadb.ClientAPI | None = None
 _collection: chromadb.Collection | None = None
@@ -33,7 +36,7 @@ def _get_client() -> chromadb.ClientAPI:
 
 
 def get_collection() -> chromadb.Collection:
-    """获取或创建向量集合"""
+    """获取或创建股票向量集合"""
     global _collection
     if _collection is not None:
         return _collection
@@ -44,6 +47,15 @@ def get_collection() -> chromadb.Collection:
         metadata={"description": "A股上市公司题材向量库"},
     )
     return _collection
+
+
+def get_keywords_collection() -> chromadb.Collection:
+    """获取或创建关键词向量集合"""
+    client = _get_client()
+    return client.get_or_create_collection(
+        name=KEYWORDS_COLLECTION_NAME,
+        metadata={"description": "题材关键词向量库"},
+    )
 
 
 def _parse_summary(file_path: Path) -> dict | None:
@@ -151,7 +163,109 @@ def vectorize_rebuild() -> int:
         )
 
     console.print(f"[green]向量库重建完成: {len(docs)} 个文档[/green]")
+
+    # 构建关键词向量集合
+    _build_keywords_collection(texts)
+
     return len(docs)
+
+
+def _build_keywords_collection(documents: list[str]):
+    """
+    从文档中提取关键词，计算IDF，嵌入并写入 theme_keywords 集合。
+    """
+    import jieba
+    import jieba.posseg as pseg
+
+    console.print(f"[blue]构建关键词向量集合...[/blue]")
+
+    # 停用词表：过滤常见无意义词
+    stop_words = {
+        "公司", "主营", "业务", "产品", "行业", "市场", "技术", "服务", "领域",
+        "发展", "应用", "系统", "设备", "生产", "客户", "研发", "解决方案",
+        "全球", "国内", "企业", "技术", "创新", "平台", "管理", "体系",
+        "能力", "价值", "品质", "质量", "单位", "材料", "方案",
+        "建设", "投资", "资产", "装备", "工程", "规模", "优势",
+        "实现", "提供", "中国", "国家", "区域", "股份", "集团",
+        "处理", "数据", "流程", "效率", "成本", "一体化",
+        "物理", "全场景", "数字化", "智能化", "一致性", "冗余",
+        "一致性能", "基座", "分发", "链路", "资产保值",
+        "数智化", "极精", "极致", "极简", "物性", "表征",
+        "无人化", "留证", "演进", "位势", "统治", "赋能",
+    }
+
+    # 允许的词性：名词类
+    allowed_pos = {"n", "nr", "ns", "nt", "nz", "vn", "an", "eng"}
+
+    total_docs = len(documents)
+    # 统计每个词出现在多少篇文档中
+    doc_freq = defaultdict(int)
+
+    for doc in documents:
+        words_in_doc = set()
+        for word, pos in pseg.cut(doc):
+            word = word.strip()
+            if len(word) < 2:
+                continue
+            if pos not in allowed_pos:
+                continue
+            if word in stop_words:
+                continue
+            words_in_doc.add(word)
+        for w in words_in_doc:
+            doc_freq[w] += 1
+
+    # IDF过滤：去掉出现在超过50%文档中的词（太通用），以及只出现在1篇中的词（太孤立）
+    max_df = total_docs * 0.5
+    keywords = {}
+    for word, df in doc_freq.items():
+        if df < 2 or df > max_df:
+            continue
+        idf = math.log(total_docs / df)
+        keywords[word] = {"doc_freq": df, "idf": round(idf, 4)}
+
+    console.print(f"  [dim]提取到 {len(keywords)} 个有效关键词 (从 {len(doc_freq)} 个候选词中筛选)[/dim]")
+
+    if not keywords:
+        console.print("[yellow]未提取到有效关键词[/yellow]")
+        return
+
+    # 删除旧的关键词集合
+    client = _get_client()
+    try:
+        client.delete_collection(KEYWORDS_COLLECTION_NAME)
+    except Exception:
+        pass
+
+    kw_collection = get_keywords_collection()
+
+    # 批量嵌入关键词
+    kw_list = list(keywords.keys())
+    kw_batch_size = 64
+    all_kw_embeddings = []
+
+    for i in range(0, len(kw_list), kw_batch_size):
+        batch = kw_list[i : i + kw_batch_size]
+        embs = embed_batch(batch)
+        all_kw_embeddings.extend(embs)
+        console.print(f"  [dim]嵌入关键词 {min(i + kw_batch_size, len(kw_list))}/{len(kw_list)}[/dim]")
+
+    # 写入 ChromaDB
+    ids = kw_list
+    metadatas = [
+        {"keyword": w, "doc_freq": keywords[w]["doc_freq"], "idf": keywords[w]["idf"]}
+        for w in kw_list
+    ]
+
+    MAX_BATCH = 5000
+    for i in range(0, len(ids), MAX_BATCH):
+        kw_collection.add(
+            ids=ids[i : i + MAX_BATCH],
+            embeddings=all_kw_embeddings[i : i + MAX_BATCH],
+            metadatas=metadatas[i : i + MAX_BATCH],
+        )
+
+    console.print(f"[green]关键词向量集合构建完成: {len(kw_list)} 个关键词[/green]")
 
 
 def vectorize_update() -> int:
@@ -211,8 +325,14 @@ def get_stats() -> dict:
     """获取向量库统计信息"""
     collection = get_collection()
     count = collection.count()
+    try:
+        kw_collection = get_keywords_collection()
+        kw_count = kw_collection.count()
+    except Exception:
+        kw_count = 0
     return {
         "collection": COLLECTION_NAME,
         "document_count": count,
+        "keywords_count": kw_count,
         "db_path": str(get_config().vectordb_dir),
     }

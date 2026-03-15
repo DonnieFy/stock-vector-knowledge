@@ -203,3 +203,80 @@ def print_cluster_results(result: dict):
             console.print(f"  [dim]代表股: {rep['code']} {rep['name']}[/dim]")
         for stock in cluster["stocks"]:
             console.print(f"  • {stock['code']} {stock['name']}")
+
+
+def analyze_themes(stock_codes: list[str], top_n: int = 20) -> list[dict]:
+    """
+    分析股票池的共性语义方向。
+
+    计算输入股票的质心向量，用质心去查询 theme_keywords 集合，
+    返回语义最相关的关键词。
+
+    Args:
+        stock_codes: 股票代码列表
+        top_n: 返回数量
+
+    Returns:
+        [{keyword, score, doc_freq}, ...]
+    """
+    from src.vectordb.store import get_keywords_collection
+
+    collection = get_collection()
+
+    # 获取输入股票的向量
+    target = collection.get(ids=stock_codes, include=["embeddings"])
+    if target["embeddings"] is None or len(target["embeddings"]) == 0:
+        console.print("[red]未找到指定股票的向量数据[/red]")
+        return []
+
+    # 计算质心
+    embeddings = np.array(target["embeddings"])
+    centroid = np.mean(embeddings, axis=0).tolist()
+
+    # 用质心查询关键词集合
+    kw_collection = get_keywords_collection()
+    results = kw_collection.query(
+        query_embeddings=[centroid],
+        n_results=top_n,
+        include=["metadatas", "distances"],
+    )
+
+    items = []
+    if results and results["ids"] and results["ids"][0]:
+        for i, kw_id in enumerate(results["ids"][0]):
+            meta = results["metadatas"][0][i] if results["metadatas"] else {}
+            distance = results["distances"][0][i] if results["distances"] else 0
+            similarity = 1.0 / (1.0 + distance)
+            items.append({
+                "keyword": meta.get("keyword", kw_id),
+                "score": round(similarity, 4),
+                "doc_freq": meta.get("doc_freq", 0),
+            })
+
+    return items
+
+
+def print_theme_analysis(results: list[dict], stock_count: int = 0):
+    """格式化打印主题分析结果"""
+    if not results:
+        return
+
+    title = f"语义最相关的 {len(results)} 个关键词"
+    if stock_count:
+        title += f" (基于 {stock_count} 只股票的质心)"
+
+    table = Table(title=title)
+    table.add_column("排名", style="dim", width=4)
+    table.add_column("关键词", style="bold white", width=16)
+    table.add_column("相似度", style="green", width=8)
+    table.add_column("覆盖股票数", style="cyan", width=10)
+
+    for i, item in enumerate(results, 1):
+        table.add_row(
+            str(i),
+            item["keyword"],
+            f"{item['score']:.4f}",
+            str(item["doc_freq"]),
+        )
+
+    console.print(table)
