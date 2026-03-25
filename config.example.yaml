@@ -22,3 +22,11 @@ collectors:
     - ths
   # 采集时的请求间隔(秒), 避免被限流
   request_interval: 1.0
+
+jiuyangongshe:
+  # 韭研公社认证信息 (配置账号密码可自动登录，或填入抓包获取的token等)
+  phone: "your_phone_here"
+  password: "your_password_here"
+  token: "your_token_here"
+  timestamp: "your_timestamp_here"
+  cookies: "your_cookies_here"

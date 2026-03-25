@@ -18,7 +18,9 @@ A股上市公司题材向量知识库，支持自动化数据采集、LLM驱动�
 ├── data/
 │   ├── drafts/             # 草稿箱(原始采集数据)
 │   ├── summaries/          # 最终摘要(每股一个MD)
-│   └── vectordb/           # ChromaDB持久化
+│   ├── vectordb/           # ChromaDB持久化
+│   └── jiuyangongshe/      # 韭研公社异动数据
+│       └── action/         # 每日异动(按日期存储JSON)
 ├── .agent/skills/          # Claude Code SKILL文件
 └── prompts/examples/       # 提示词样例
 ```
@@ -65,6 +67,13 @@ svk vectorize --rebuild
 svk query "光伏组件" --top 10        # 文本相似查询
 svk similar 600519 --top 10          # 股票相似查询
 svk cluster 600519 000001 300750     # 拓扑聚类
+
+# 7. 韭研公社异动数据
+svk jiuyangongshe-action                          # 采集今天
+svk jiuyangongshe-action --date 2025-01-23         # 指定日期
+svk jiuyangongshe-action --start 2025-01-20 --end 2025-01-23  # 批量采集
+svk jiuyangongshe-industry                                    # 产业异动(增量合并)
+svk jiuyangongshe-timeline                                    # 事件时间线(增量合并)
 ```
 
 ## ⚙️ 配置
@@ -79,6 +88,13 @@ embedding:
 collectors:
   enabled: ["eastmoney", "ths"]
   request_interval: 1.0
+
+jiuyangongshe:
+  phone: "手机号"        # 自动登录用
+  password: "密码"
+  token: "从浏览器获取"   # 首次需手动填入，后续自动刷新
+  timestamp: "..."
+  cookies: "..."
 ```
 
 ## 🔌 扩展采集器

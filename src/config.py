@@ -118,6 +118,54 @@ class Config:
     def request_interval(self) -> float:
         return self.get("collectors.request_interval", 1.0)
 
+    @property
+    def jiuyangongshe_phone(self) -> str:
+        return self.get("jiuyangongshe.phone", "")
+        
+    @property
+    def jiuyangongshe_password(self) -> str:
+        return self.get("jiuyangongshe.password", "")
+
+    @property
+    def jiuyangongshe_token(self) -> str:
+        return self.get("jiuyangongshe.token", "")
+
+    @property
+    def jiuyangongshe_timestamp(self) -> str:
+        return self.get("jiuyangongshe.timestamp", "")
+
+    @property
+    def jiuyangongshe_cookies(self) -> str:
+        return self.get("jiuyangongshe.cookies", "")
+
+    @property
+    def jiuyangongshe_data_dir(self) -> Path:
+        return self.resolve_path("./data/jiuyangongshe")
+
+    def update_jiuyangongshe_auth(self, token: str, timestamp: str, cookies: str):
+        """更新韭研公社认证信息并保存到文件"""
+        if "jiuyangongshe" not in self._data:
+            self._data["jiuyangongshe"] = {}
+            
+        self._data["jiuyangongshe"]["token"] = token
+        self._data["jiuyangongshe"]["timestamp"] = timestamp
+        self._data["jiuyangongshe"]["cookies"] = cookies
+        
+        path = self._project_root / "config.yaml"
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                import yaml
+                data = yaml.safe_load(f) or {}
+                
+            if "jiuyangongshe" not in data:
+                data["jiuyangongshe"] = {}
+                
+            data["jiuyangongshe"]["token"] = token
+            data["jiuyangongshe"]["timestamp"] = timestamp
+            data["jiuyangongshe"]["cookies"] = cookies
+            
+            with open(path, "w", encoding="utf-8") as f:
+                yaml.dump(data, f, allow_unicode=True, sort_keys=False)
 
 # 全局单例
 _config: Config | None = None

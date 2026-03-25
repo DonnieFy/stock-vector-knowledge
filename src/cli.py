@@ -155,6 +155,76 @@ def analyze(stock_codes, top, k):
     print_theme_analysis(results)
 
 
+# ──────────────── 韭研公社 ────────────────
+
+
+@cli.command("jiuyangongshe-action")
+@click.option("--date", "date_str", default=None, help="指定日期 (YYYY-MM-DD)，默认今天")
+@click.option("--start", "start_date", default=None, help="起始日期 (批量采集)")
+@click.option("--end", "end_date", default=None, help="结束日期 (批量采集)")
+@click.option("--force", is_flag=True, help="强制覆盖已存在的文件")
+def jiuyangongshe_action(date_str, start_date, end_date, force):
+    """采集韭研公社每日异动数据"""
+    from datetime import datetime
+    from src.collectors.jiuyangongshe import fetch_and_save, fetch_range, _ensure_data_dir
+
+    # 检查认证配置
+    from src.config import get_config
+    config = get_config()
+    if not config.jiuyangongshe_token and not (config.jiuyangongshe_phone and config.jiuyangongshe_password):
+        console.print("[red]错误: 请在 config.yaml 中配置 jiuyangongshe.token，或提供 phone 和 password[/red]")
+        return
+
+    if start_date and end_date:
+        # 批量采集模式
+        fetch_range(start_date, end_date)
+    else:
+        # 单日采集模式
+        if date_str is None:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+
+        # 检查是否已存在
+        action_dir = _ensure_data_dir()
+        if (action_dir / f"{date_str}.json").exists() and not force:
+            console.print(f"[yellow]{date_str} 数据已存在，使用 --force 覆盖[/yellow]")
+            return
+
+        console.print(f"[bold blue]【韭研公社】采集异动数据: {date_str}[/bold blue]")
+        ok = fetch_and_save(date_str)
+        if ok:
+            console.print(f"[green]数据已保存到 data/jiuyangongshe/action/{date_str}.json[/green]")
+        else:
+            console.print("[red]采集失败，请检查网络和认证配置[/red]")
+
+
+@cli.command("jiuyangongshe-industry")
+def jiuyangongshe_industry():
+    """采集韭研公社产业异动数据（增量合并）"""
+    from src.collectors.jiuyangongshe import fetch_and_save_industry
+
+    from src.config import get_config
+    config = get_config()
+    if not config.jiuyangongshe_token and not (config.jiuyangongshe_phone and config.jiuyangongshe_password):
+        console.print("[red]错误: 请在 config.yaml 中配置认证信息[/red]")
+        return
+
+    fetch_and_save_industry()
+
+
+@cli.command("jiuyangongshe-timeline")
+def jiuyangongshe_timeline():
+    """采集韭研公社事件时间线数据（增量合并）"""
+    from src.collectors.jiuyangongshe import fetch_and_save_timeline
+
+    from src.config import get_config
+    config = get_config()
+    if not config.jiuyangongshe_token and not (config.jiuyangongshe_phone and config.jiuyangongshe_password):
+        console.print("[red]错误: 请在 config.yaml 中配置认证信息[/red]")
+        return
+
+    fetch_and_save_timeline()
+
+
 # ──────────────── 工具 ────────────────
 
 
